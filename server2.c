@@ -5,7 +5,6 @@
 #include <string.h>
 #include <errno.h>
 #include <asm/errno.h>
-#include <zconf.h>
 
 #define MAX_PLAYERS 8
 #define MULTICAST_PORT 1234

@@ -54,7 +54,7 @@ int main(int argc , char *argv[])
         perror("kek");
         return 1;
     }
-
+*/
     int serverSocket = socket(AF_INET , SOCK_STREAM , 0);
 
     if(serverSocket == -1) {
