@@ -116,7 +116,7 @@ void connectToServer(char* address) {
     struct sockaddr_in server;
     server.sin_addr.s_addr = inet_addr(address);
     server.sin_family = AF_INET;
-    server.sin_port = htons(strtol("1235", NULL, 0));
+    server.sin_port = htons(strtol("1236", NULL, 0));
     if (connect(serverSocket, (struct sockaddr *) &server, sizeof(server)) < 0) {
         perror("Connection error");
         return;
