@@ -67,12 +67,13 @@ int main(int argc , char *argv[])
         if (FD_ISSET(serverSocket, &readfds)) {
             acceptPlayer(serverSocket);
         } else {
+            /*
             for (int i = 0; i < MAX_PLAYERS; i++) {
                 int sd = playerSockets[i];
                 if (FD_ISSET(sd, &readfds)) {
                     handleClientData(sd, i);
                 }
-            }
+            }*/
         }
 
         sendGameData(multiSocket);
@@ -127,8 +128,9 @@ void acceptPlayer(int serverSocket) {
     }
 
     printf("Accept player\n");
-
+    printf("DDDDDDDDD");
     createPlayer();
+    printf("LELELLELE");
     sendInitData(playerSockets[initGameData.gameData.playersCount-1]);
 }
 
@@ -183,16 +185,18 @@ void sendGameData(int multiSocket) {
 }
 
 void sendInitData(int clientSocket) {
-
     int nbytes = sendto(clientSocket, &initGameData, sizeof(InitGameData), 0, (struct sockaddr *) &multiAddr, sizeof(multiAddr));
-
+    printf("WYSŁAŁ");
     if (nbytes < 0) {
         perror("sendto");
         return;
     }
+
+    printf("KEKEKKE");
 }
 
 void createPlayer() {
+    printf("KUŹwa");
     initGameData.gameData.players[initGameData.gameData.playersCount].x = 10;
     initGameData.gameData.players[initGameData.gameData.playersCount].y = 10;
     initGameData.gameData.players[initGameData.gameData.playersCount].color = initGameData.gameData.playersCount+1;
