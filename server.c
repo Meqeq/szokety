@@ -1,151 +1,72 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
-#include <arpa/inet.h>	//inet_addr
-#include <time.h>
+#include <arpa/inet.h>
 
-#define SERVER_PORT 1235
-#define MULTICAST_PORT 1234
-#define MAX_PLAYERS 4
+#include "types.h"
 
-typedef struct Player {
-    int x;
-    int y;
-    int color;
-} Player;
-Player players[MAX_PLAYERS];
+int createSocket(struct sockaddr_in* server, char* port);
+int createMultiSocket(struct sockaddr_in* multi);
+void acceptPlayer(int serverSocket, struct sockaddr_in* client, struct InitGameData* init);
+void createPlayer(struct sockaddr_in* client, struct InitGameData* init); 
+void sendInitialData(int serverSocket, struct sockaddr_in* client, struct InitGameData* init);
+void handleMove(struct PlayerAction* pa, struct InitGameData* init);
 
-int playerSockets[MAX_PLAYERS], max_sd;
+int main(int argc, char* argv[]) {
 
-typedef struct GameData {
-    int playersCount;
-    Player players[MAX_PLAYERS];
-} GameData;
-
-typedef struct InitGameData {
-    char multicastAddress[16];
-    int playerID;
-    GameData gameData;
-} InitGameData;
-InitGameData initGameData = {0};
-
-const char *MULTICAST_ADDR = "239.4.2.224";
-
-struct sockaddr_in server, client, multiAddr;
-
-fd_set readfds;
-
-struct timeval selectTimeout = { 0, 30000 };
-
-int initSocket(char* address);
-int initMultiSocket();
-void sendGameData(int multiSocket);
-void sendInitData(int clientSocket);
-void createPlayer();
-void acceptPlayer(int serverSocket);
-void prepareClientSockets();
-void handleClientData(int clientSocket, int player);
-
-int main(int argc , char *argv[])
-{
-    if(argc != 3) {
-        perror("kek");
+    if(argc != 2) {
+        printf("Usage %s <port>\n", argv[0]);
         return 1;
     }
 
-    int serverSocket = initSocket(argv[2]);
-    int multiSocket = initMultiSocket();
+    struct sockaddr_in server = { 0 };
+    int serverSocket = createSocket(&server, argv[1]);
 
+    struct sockaddr_in multi = { 0 };
+    int multiSocket = createMultiSocket(&multi);
 
-    listen(serverSocket, 1000);
+    struct InitGameData init = { MULTICAST, 0 };
 
     while(1) {
+        struct sockaddr_in client = { 0 };
+        struct PlayerAction pa = { 0 };
 
-        prepareClientSockets(serverSocket);
-        int data = select(max_sd + 1, &readfds, NULL, NULL, &selectTimeout);
-        
-        if (FD_ISSET(serverSocket, &readfds)) {
-            acceptPlayer(serverSocket);
-        } else {
-            /*
-            for (int i = 0; i < MAX_PLAYERS; i++) {
-                int sd = playerSockets[i];
-                if (FD_ISSET(sd, &readfds)) {
-                    handleClientData(sd, i);
-                }
-            }*/
+        int size = sizeof client;
+        recvfrom(serverSocket, &pa, sizeof(pa), 0, (struct sockaddr*) &client, (socklen_t*) &size);
+
+        switch(pa.type) {
+            case 1:
+                printf("New player connected\n");
+                //printf("%s\n", inet_ntoa(client.sin_addr));
+                acceptPlayer(serverSocket, &client, &init);
+                break;
+            case 2:
+                printf("Player moved\n");
+                handleMove(&pa, &init);
+                break;
         }
 
-        sendGameData(multiSocket);
+        int eke = sendto(multiSocket, &init.gd, sizeof(GameData), 0, (struct sockaddr*) &multi, sizeof(multi));
+        if(eke < 0) {
+            perror("SEND MULTICAST\n");
+        }
     }
 
-	return 0;
+    return 0;
 }
 
-void prepareClientSockets(int serverSocket) {
-    //clear the client socket set
-    FD_ZERO(&readfds);
-
-    //add server socket to set
-    FD_SET(serverSocket, &readfds);
-
-    max_sd = serverSocket;
-    //add child sockets to set
-    for (int i = 0; i < MAX_PLAYERS; i++) {
-        int sd = playerSockets[i];
-        if (sd > 0)
-            FD_SET(sd, &readfds);
-
-        if (sd > max_sd)
-            max_sd = sd;
-    }
-}
-
-void handleClientData(int clientSocket, int player) {
-    Player receivedPlayer;
-    int data = read(clientSocket, &receivedPlayer, sizeof(Player));
-    if (data < 1) {
-        // someone closed client
-        //closeSocket(clientSocket); .///////////////////////////////////////////////////
-        printf("Someone left the game\n");
-        return;
-    }
-
-    // handle client key press
-    initGameData.gameData.players[player].x += receivedPlayer.x;
-    initGameData.gameData.players[player].y += receivedPlayer.y;
-    printf("Player %d cords: (%d,%d)\n", player, initGameData.gameData.players[player].x,
-           initGameData.gameData.players[player].y);
-}
-
-void acceptPlayer(int serverSocket) {
-    int c = sizeof(struct sockaddr_in);
-
-    playerSockets[initGameData.gameData.playersCount] = accept(serverSocket, (struct sockaddr *)&client, (socklen_t*)&c);
-
-    if(serverSocket == -1) {
-        perror("Could not create socket");
-    }
-
-    printf("Accept player\n");
-    printf("DDDDDDDDD");
-    createPlayer();
-    printf("LELELLELE");
-    sendInitData(playerSockets[initGameData.gameData.playersCount-1]);
-}
-
-int initSocket(char* address) {
-    int serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+int createSocket(struct sockaddr_in* server, char* port) {
+    int serverSocket = socket(AF_INET, SOCK_DGRAM, 0);
 
     if(serverSocket == -1) {
         return -1;
     }
 
-    server.sin_family = AF_INET;
-	server.sin_addr.s_addr = INADDR_ANY;
-	server.sin_port = htons(strtol(address, NULL, 0));
+    server->sin_family = AF_INET;
+	server->sin_addr.s_addr = htonl(INADDR_ANY);
+	server->sin_port = htons(strtol(port, NULL, 0));
 
-    if(bind(serverSocket,(struct sockaddr *)&server , sizeof(server)) < 0) {
+    if(bind(serverSocket, (struct sockaddr *) server, sizeof(struct sockaddr_in)) < 0) {
         perror("Bind failed");
         return -1;
     }
@@ -153,7 +74,7 @@ int initSocket(char* address) {
     return serverSocket;
 }
 
-int initMultiSocket() {
+int createMultiSocket(struct sockaddr_in* multi) {
     int multiSock = socket(AF_INET, SOCK_DGRAM, 0);
 
     if (multiSock < 0) {
@@ -161,45 +82,55 @@ int initMultiSocket() {
         return -1;
     }
 
-    // set up destination address
-    multiAddr.sin_family = AF_INET;
-    multiAddr.sin_port = htons(MULTICAST_PORT);
-    if (inet_pton(AF_INET, MULTICAST_ADDR, &multiAddr.sin_addr) <= 0)  // multiAddr.sin_addr.s_addr = inet_addr(group);
-    {
-        printf("\nInvalid address/ Address not supported \n");
-        return -1;
-    }
+    multi->sin_family = AF_INET;
+    multi->sin_addr.s_addr = inet_addr(MULTICAST);
+    multi->sin_port = htons(MULTICAST_PORT);
 
-    bind(multiSock, (struct sockaddr *) &multiAddr, sizeof(struct sockaddr));   
+    //bind(multiSock, (struct sockaddr *) &multi, sizeof(struct sockaddr));   
+    struct in_addr localInterface;
+    localInterface.s_addr = inet_addr("11.11.11.10");
+
+    if (setsockopt(multiSock, IPPROTO_IP, IP_MULTICAST_IF, (char *)&localInterface, sizeof(localInterface)) < 0) {
+        perror("setting local interface");
+    }
 
     return multiSock;
 }
 
-void sendGameData(int multiSocket) {
-    int nbytes = sendto(multiSocket, &initGameData.gameData, sizeof(GameData), 0, (struct sockaddr *) &multiAddr, sizeof(multiAddr));
+void acceptPlayer(int serverSocket, struct sockaddr_in* client, struct InitGameData* init) {
+    createPlayer(client, init);
+    sendInitialData(serverSocket, client, init);
+}
+void createPlayer(struct sockaddr_in* client, struct InitGameData* init) {
+    init->gd.players[init->gd.count].color = init->gd.count + 1;
+    init->gd.players[init->gd.count].x = 10;
+    init->gd.players[init->gd.count].y = 10;
+    init->id = init->gd.count;
+    init->gd.count++;
+}
 
-    if (nbytes < 0) {
-        perror("sendto");
-        return;
+void sendInitialData(int serverSocket, struct sockaddr_in* client, struct InitGameData* init) {
+    int result = sendto(serverSocket, init, sizeof(struct InitGameData), 0, (struct sockaddr *) client, (socklen_t) sizeof(struct sockaddr));
+    if(result < 0) {
+        perror("Send init game data\n");
     }
 }
 
-void sendInitData(int clientSocket) {
-    int nbytes = sendto(clientSocket, &initGameData, sizeof(InitGameData), 0, (struct sockaddr *) &multiAddr, sizeof(multiAddr));
-    printf("WYSŁAŁ");
-    if (nbytes < 0) {
-        perror("sendto");
-        return;
-    }
-
-    printf("KEKEKKE");
-}
-
-void createPlayer() {
-    printf("KUŹwa");
-    initGameData.gameData.players[initGameData.gameData.playersCount].x = 10;
-    initGameData.gameData.players[initGameData.gameData.playersCount].y = 10;
-    initGameData.gameData.players[initGameData.gameData.playersCount].color = initGameData.gameData.playersCount+1;
-
-    initGameData.gameData.playersCount++;
+void handleMove(struct PlayerAction* pa, struct InitGameData* init) {
+    switch(pa->move) {
+        case 3:
+            init->gd.players[pa->id].x--;
+            if(init->gd.players[pa->id].x < 0) init->gd.players[pa->id].x = 0;
+            break;
+        case 4:
+            init->gd.players[pa->id].x++;
+            break;
+        case 1:
+            init->gd.players[pa->id].y--;
+            if(init->gd.players[pa->id].y < 0) init->gd.players[pa->id].y = 0;
+            break;
+        case 2:
+            init->gd.players[pa->id].y++;
+            break;
+    }    
 }
